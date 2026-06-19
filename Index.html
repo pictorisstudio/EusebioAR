@@ -136,10 +136,14 @@
       /* ================= CONFIG ================= */
       const SPLASH_AUTOHIDE_MS = 100000;
       const SPINNER_DELAY_MS = 800;
+      const VOICE_KEYWORD = "eusebio";
+      const VOICE_EFFECT_AUDIO = "Audio/SonidoAmbiente/Sonido_Video01";
+      const VOICE_EFFECT_MS = 5000;
 
       // Volumenes por pista (opcional). Si no hay entrada, se usan defaults abajo.
       const VOLUMES_BY_AUDIOBASE = {
-        // "Audio/SonidoAmbiente/PajarosSingle": 0.35,
+        "Audio/SonidoAmbiente/PajarosSingle": 0.35,
+        "Audio/SonidoAmbiente/Sonido_Video01": 0.9,
       };
 
       /* ====== FIX 100vh iOS ====== */
@@ -441,6 +445,42 @@
           if (this.playing.has(basePath)) this.stop(basePath);
           return this._ensureHandle(basePath, { loop: false, volume });
         }
+        async playTimedFade(
+          basePath,
+          { volume = 1, durationMs = 5000, fadeMs = 650 } = {}
+        ) {
+          if (this.playing.has(basePath)) this.stop(basePath);
+
+          const buf = await this.load(basePath);
+          const src = this.ctx.createBufferSource();
+          src.buffer = buf;
+          src.loop = false;
+
+          const gain = this.ctx.createGain();
+          const now = this.ctx.currentTime;
+          const duration = durationMs / 1000;
+          const fade = Math.min(fadeMs / 1000, duration / 2);
+
+          gain.gain.setValueAtTime(0.0001, now);
+          gain.gain.exponentialRampToValueAtTime(volume, now + fade);
+          gain.gain.setValueAtTime(volume, now + Math.max(fade, duration - fade));
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+          src.connect(gain).connect(this.master);
+          src.start(0);
+          src.stop(now + duration + 0.05);
+
+          const handle = { src, gain, baseVol: volume, loop: false };
+          this.playing.set(basePath, handle);
+          src.onended = () => {
+            try {
+              src.disconnect();
+              gain.disconnect();
+            } catch {}
+            this.playing.delete(basePath);
+          };
+          return handle;
+        }
         stop(basePath) {
           const h = this.playing.get(basePath);
           if (!h) return;
@@ -466,6 +506,99 @@
       }
       const AudioMgr = new WebAudioManager();
       let audioUnlocked = AudioMgr.unlocked;
+
+      const createTextSprite = ({
+        text,
+        width = 512,
+        height = 512,
+        fontSize = 280,
+        y = 0,
+        scale = { x: 0.34, y: 0.34 },
+      }) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, width, height);
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = `${fontSize}px "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+        ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
+        ctx.shadowBlur = 18;
+        ctx.shadowOffsetY = 10;
+        ctx.fillText(text, width / 2, height / 2);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.needsUpdate = true;
+        if ("colorSpace" in texture) texture.colorSpace = THREE.SRGBColorSpace;
+
+        const material = new THREE.SpriteMaterial({
+          map: texture,
+          transparent: true,
+          depthWrite: false,
+        });
+        const sprite = new THREE.Sprite(material);
+        sprite.position.set(0, y, 0.25);
+        sprite.scale.set(scale.x, scale.y, 1);
+        return sprite;
+      };
+
+      const createEusebioScene = () => {
+        const group = new THREE.Group();
+        const clouds = createTextSprite({
+          text: "☁️  ☁️",
+          width: 768,
+          height: 256,
+          fontSize: 130,
+          y: -0.16,
+          scale: { x: 0.66, y: 0.22 },
+        });
+        const lion = createTextSprite({
+          text: "🦁",
+          y: 0.08,
+          scale: { x: 0.42, y: 0.42 },
+        });
+        group.add(clouds);
+        group.add(lion);
+        group.visible = false;
+        return group;
+      };
+
+      const createFirework = () => {
+        const count = 120;
+        const positions = new Float32Array(count * 3);
+        const velocities = new Float32Array(count * 3);
+        for (let i = 0; i < count; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const r = 0.004 + Math.random() * 0.012;
+          const lift = 0.002 + Math.random() * 0.012;
+          const idx = i * 3;
+          positions[idx] = 0;
+          positions[idx + 1] = 0.12;
+          positions[idx + 2] = 0.28;
+          velocities[idx] = Math.cos(a) * r;
+          velocities[idx + 1] = Math.sin(a) * r + lift;
+          velocities[idx + 2] = (Math.random() - 0.5) * 0.006;
+        }
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+        const material = new THREE.PointsMaterial({
+          size: 12,
+          color: 0xffd95a,
+          transparent: true,
+          opacity: 1,
+          depthWrite: false,
+        });
+        const points = new THREE.Points(geometry, material);
+        points.userData = {
+          type: "firework",
+          velocities,
+          bornAt: performance.now(),
+          durationMs: VOICE_EFFECT_MS,
+        };
+        return points;
+      };
 
       /* ====== Target Eusebio: prueba limpia ====== */
       const targets = [
@@ -655,6 +788,8 @@
         t.layerObjs = [];
         t.cleanupTimeout = null;
         t.particles = null;
+        t.staticGroup = null;
+        t.effectParticles = [];
 
         const ensureLayers = async () => {
           if (t.layersCreated) return;
@@ -676,6 +811,11 @@
           t.particles.visible = false;
           anchor.group.add(p);
         };
+        const ensureStaticScene = () => {
+          if (t.staticGroup) return;
+          t.staticGroup = createEusebioScene();
+          anchor.group.add(t.staticGroup);
+        };
         const volumeFor = (audioBase) =>
           VOLUMES_BY_AUDIOBASE[audioBase] ?? null;
 
@@ -688,10 +828,13 @@
 
           if (t.audioBase) AudioMgr.load(t.audioBase).catch(() => {});
           if (t.ambientBase) AudioMgr.load(t.ambientBase).catch(() => {});
+          AudioMgr.load(VOICE_EFFECT_AUDIO).catch(() => {});
 
+          ensureStaticScene();
           await ensureLayers();
           ensureParticles();
           await revealInSync(t);
+          if (t.staticGroup) t.staticGroup.visible = true;
 
           if (audioUnlocked) {
             const volVoz = t.audioBase ? volumeFor(t.audioBase) ?? 1.2 : 1.2;
@@ -720,10 +863,18 @@
             if (mesh) mesh.visible = false;
           });
           if (t.particles) t.particles.visible = false;
+          if (t.staticGroup) t.staticGroup.visible = false;
+          t.effectParticles.forEach((fx) => {
+            anchor.group.remove(fx);
+            fx.geometry?.dispose?.();
+            fx.material?.dispose?.();
+          });
+          t.effectParticles.length = 0;
 
           // Corte inmediato de ambos audios
           if (t.ambientBase) AudioMgr.stop(t.ambientBase);
           if (t.audioBase) AudioMgr.stop(t.audioBase);
+          AudioMgr.stop(VOICE_EFFECT_AUDIO);
 
           hideSpinner();
 
@@ -741,16 +892,120 @@
                 t.particles.material?.dispose?.();
                 t.particles = null;
               }
+              if (t.staticGroup) {
+                anchor.group.remove(t.staticGroup);
+                t.staticGroup.traverse((obj) => {
+                  obj.material?.map?.dispose?.();
+                  obj.material?.dispose?.();
+                });
+                t.staticGroup = null;
+              }
             }, 5000);
           }
         };
       });
 
+      const triggerVoiceEffect = () => {
+        if (!audioUnlocked || !activeTargets.size) return;
+        activeTargets.forEach((i) => {
+          const t = targets.find((tt) => tt.index === i);
+          if (!t?.anchor) return;
+          const fx = createFirework();
+          t.effectParticles.push(fx);
+          t.anchor.group.add(fx);
+        });
+        AudioMgr.playTimedFade(VOICE_EFFECT_AUDIO, {
+          volume: VOLUMES_BY_AUDIOBASE[VOICE_EFFECT_AUDIO] ?? 0.9,
+          durationMs: VOICE_EFFECT_MS,
+          fadeMs: 700,
+        }).catch(() => {});
+      };
+
+      const normalizeSpeech = (text) =>
+        (text || "")
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "");
+
+      let voiceRecognition = null;
+      let voiceRestartTimer = null;
+      let voiceEnabled = false;
+      let lastVoiceTriggerAt = 0;
+
+      function startVoiceRecognition() {
+        if (voiceEnabled) return;
+        const SpeechRecognition =
+          window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) return;
+
+        voiceEnabled = true;
+        voiceRecognition = new SpeechRecognition();
+        voiceRecognition.lang = "es-CO";
+        voiceRecognition.continuous = true;
+        voiceRecognition.interimResults = true;
+        voiceRecognition.maxAlternatives = 1;
+
+        voiceRecognition.onresult = (event) => {
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = normalizeSpeech(event.results[i][0]?.transcript);
+            if (!transcript.includes(VOICE_KEYWORD)) continue;
+
+            const now = performance.now();
+            if (now - lastVoiceTriggerAt < VOICE_EFFECT_MS) return;
+            lastVoiceTriggerAt = now;
+            triggerVoiceEffect();
+          }
+        };
+
+        voiceRecognition.onend = () => {
+          if (!voiceEnabled || document.hidden) return;
+          clearTimeout(voiceRestartTimer);
+          voiceRestartTimer = setTimeout(() => {
+            try {
+              voiceRecognition.start();
+            } catch {}
+          }, 400);
+        };
+
+        voiceRecognition.onerror = () => {
+          clearTimeout(voiceRestartTimer);
+        };
+
+        try {
+          voiceRecognition.start();
+        } catch {}
+      }
+
       // ====== Animacion de particulas ======
       const animateParticles = () => {
-        if (!particlesEnabled()) return;
         targets.forEach((t) => {
+          for (let i = t.effectParticles.length - 1; i >= 0; i--) {
+            const fx = t.effectParticles[i];
+            const age = performance.now() - fx.userData.bornAt;
+            const duration = fx.userData.durationMs || VOICE_EFFECT_MS;
+            if (age >= duration) {
+              t.anchor.group.remove(fx);
+              fx.geometry?.dispose?.();
+              fx.material?.dispose?.();
+              t.effectParticles.splice(i, 1);
+              continue;
+            }
+
+            const positions = fx.geometry.attributes.position.array;
+            const velocities = fx.userData.velocities;
+            const progress = age / duration;
+            for (let j = 0; j < positions.length / 3; j++) {
+              const idx = j * 3;
+              positions[idx] += velocities[idx];
+              positions[idx + 1] += velocities[idx + 1] - progress * 0.0025;
+              positions[idx + 2] += velocities[idx + 2];
+            }
+            fx.material.opacity = Math.max(0, 1 - progress);
+            fx.geometry.attributes.position.needsUpdate = true;
+          }
+
           const p = t.particles;
+          if (!particlesEnabled()) return;
           if (!p || !p.visible || !activeTargets.has(t.index)) return;
           const positions = p.geometry.attributes.position.array;
           const type = p.userData.type;
@@ -832,6 +1087,7 @@
         } catch {}
         pingAudioOnce();
         audioUnlocked = true;
+        startVoiceRecognition();
 
         // Si ya hay targets activos, relanza solo ambientes (sin tocar niveles luego)
         activeTargets.forEach((i) => {
@@ -896,7 +1152,12 @@
         if (document.hidden) {
           hideSpinner();
           AudioMgr.stopAll();
+          voiceEnabled = false;
+          try {
+            voiceRecognition?.stop();
+          } catch {}
         } else {
+          if (audioUnlocked) startVoiceRecognition();
           if (audioUnlocked && activeTargets.size) {
             activeTargets.forEach((i) => {
               const t = targets.find((tt) => tt.index === i);
