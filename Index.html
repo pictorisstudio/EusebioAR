@@ -54,7 +54,7 @@
         place-items: center;
         background: transparent;
         opacity: 0;
-        pointer-events: auto;
+        pointer-events: none;
         transition: opacity 220ms ease;
         -webkit-tap-highlight-color: transparent;
       }
@@ -139,6 +139,7 @@
       const VOICE_KEYWORD = "eusebio";
       const VOICE_EFFECT_AUDIO = "Audio/SonidoAmbiente/Sonido_Video01";
       const VOICE_EFFECT_MS = 5000;
+      const TARGET_LOST_GRACE_MS = 1800;
 
       // Volumenes por pista (opcional). Si no hay entrada, se usan defaults abajo.
       const VOLUMES_BY_AUDIOBASE = {
@@ -333,8 +334,10 @@
       const mindarThree = new window.MINDAR.IMAGE.MindARThree({
         container: document.querySelector("#ar-container"),
         imageTargetSrc: "TargetsMind/TargetEusebio.mind",
-        filterMinCF: 0.05,
-        filterBeta: 0.01,
+        filterMinCF: 0.0001,
+        filterBeta: 0.001,
+        warmupTolerance: 1,
+        missTolerance: 30,
       });
       const { renderer, scene, camera } = mindarThree;
 
@@ -787,6 +790,7 @@
         t.layersCreated = false;
         t.layerObjs = [];
         t.cleanupTimeout = null;
+        t.lostTimeout = null;
         t.particles = null;
         t.staticGroup = null;
         t.effectParticles = [];
@@ -825,12 +829,17 @@
             clearTimeout(t.cleanupTimeout);
             t.cleanupTimeout = null;
           }
+          if (t.lostTimeout) {
+            clearTimeout(t.lostTimeout);
+            t.lostTimeout = null;
+          }
 
           if (t.audioBase) AudioMgr.load(t.audioBase).catch(() => {});
           if (t.ambientBase) AudioMgr.load(t.ambientBase).catch(() => {});
           AudioMgr.load(VOICE_EFFECT_AUDIO).catch(() => {});
 
           ensureStaticScene();
+          if (t.staticGroup) t.staticGroup.visible = true;
           await ensureLayers();
           ensureParticles();
           await revealInSync(t);
@@ -854,54 +863,57 @@
         };
 
         anchor.onTargetLost = () => {
-          activeTargets.delete(t.index);
+          if (t.lostTimeout) clearTimeout(t.lostTimeout);
+          t.lostTimeout = setTimeout(() => {
+            t.lostTimeout = null;
+            activeTargets.delete(t.index);
 
-          t.layerObjs.forEach(({ video, mesh }) => {
-            try {
-              video.pause();
-            } catch {}
-            if (mesh) mesh.visible = false;
-          });
-          if (t.particles) t.particles.visible = false;
-          if (t.staticGroup) t.staticGroup.visible = false;
-          t.effectParticles.forEach((fx) => {
-            anchor.group.remove(fx);
-            fx.geometry?.dispose?.();
-            fx.material?.dispose?.();
-          });
-          t.effectParticles.length = 0;
+            t.layerObjs.forEach(({ video, mesh }) => {
+              try {
+                video.pause();
+              } catch {}
+              if (mesh) mesh.visible = false;
+            });
+            if (t.particles) t.particles.visible = false;
+            if (t.staticGroup) t.staticGroup.visible = false;
+            t.effectParticles.forEach((fx) => {
+              anchor.group.remove(fx);
+              fx.geometry?.dispose?.();
+              fx.material?.dispose?.();
+            });
+            t.effectParticles.length = 0;
 
-          // Corte inmediato de ambos audios
-          if (t.ambientBase) AudioMgr.stop(t.ambientBase);
-          if (t.audioBase) AudioMgr.stop(t.audioBase);
-          AudioMgr.stop(VOICE_EFFECT_AUDIO);
+            if (t.ambientBase) AudioMgr.stop(t.ambientBase);
+            if (t.audioBase) AudioMgr.stop(t.audioBase);
+            AudioMgr.stop(VOICE_EFFECT_AUDIO);
 
-          hideSpinner();
+            hideSpinner();
 
-          if (calidad !== "hd") {
-            t.cleanupTimeout = setTimeout(() => {
-              t.layerObjs.forEach((obj) => {
-                anchor.group.remove(obj.mesh);
-                disposeLayer(obj);
-              });
-              t.layerObjs.length = 0;
-              t.layersCreated = false;
-              if (t.particles) {
-                anchor.group.remove(t.particles);
-                t.particles.geometry?.dispose?.();
-                t.particles.material?.dispose?.();
-                t.particles = null;
-              }
-              if (t.staticGroup) {
-                anchor.group.remove(t.staticGroup);
-                t.staticGroup.traverse((obj) => {
-                  obj.material?.map?.dispose?.();
-                  obj.material?.dispose?.();
+            if (calidad !== "hd") {
+              t.cleanupTimeout = setTimeout(() => {
+                t.layerObjs.forEach((obj) => {
+                  anchor.group.remove(obj.mesh);
+                  disposeLayer(obj);
                 });
-                t.staticGroup = null;
-              }
-            }, 5000);
-          }
+                t.layerObjs.length = 0;
+                t.layersCreated = false;
+                if (t.particles) {
+                  anchor.group.remove(t.particles);
+                  t.particles.geometry?.dispose?.();
+                  t.particles.material?.dispose?.();
+                  t.particles = null;
+                }
+                if (t.staticGroup) {
+                  anchor.group.remove(t.staticGroup);
+                  t.staticGroup.traverse((obj) => {
+                    obj.material?.map?.dispose?.();
+                    obj.material?.dispose?.();
+                  });
+                  t.staticGroup = null;
+                }
+              }, 5000);
+            }
+          }, TARGET_LOST_GRACE_MS);
         };
       });
 
