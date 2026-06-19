@@ -1299,6 +1299,21 @@
         fx.material?.dispose?.();
       }
 
+      async function requestMicrophonePermission() {
+        if (!navigator.mediaDevices?.getUserMedia) return true;
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach((track) => track.stop());
+          return true;
+        } catch {
+          setVoicePanel(
+            'No pude activar el microfono. Revisa el permiso del navegador y vuelve a tocar "activar experiencia".',
+            ""
+          );
+          return false;
+        }
+      }
+
       function startVoiceRecognition() {
         if (voiceEnabled) return;
         const SpeechRecognition =
@@ -1339,18 +1354,25 @@
           }, 400);
         };
 
-        voiceRecognition.onerror = () => {
+        voiceRecognition.onerror = (event) => {
           clearTimeout(voiceRestartTimer);
-          setVoicePanel(
-            'No pude activar el microfono. Toca la pantalla y permite el permiso.',
-            ""
-          );
+          if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+            voiceEnabled = false;
+            setVoicePanel(
+              'Permiso de microfono bloqueado. Habilitalo en el navegador y vuelve a activar.',
+              ""
+            );
+            return;
+          }
+          setVoicePanel('Sigo escuchando. Di <strong>"Eusebio"</strong> cerca del telefono.', "listening");
         };
 
         try {
           voiceRecognition.start();
           setVoicePanel('Microfono activo. Di <strong>"Eusebio"</strong>.', "listening");
-        } catch {}
+        } catch {
+          voiceEnabled = false;
+        }
       }
 
       // ====== Animacion de particulas ======
@@ -1477,7 +1499,6 @@
         } catch {}
         pingAudioOnce();
         audioUnlocked = true;
-        startVoiceRecognition();
 
         // Si ya hay targets activos, relanza solo ambientes (sin tocar niveles luego)
         activeTargets.forEach((i) => {
@@ -1490,42 +1511,6 @@
 
         hideSplash();
       };
-
-      // Enganche del primer gesto
-      (() => {
-        let armed = true;
-        const handler = () => {
-          if (!armed) return;
-          armed = false;
-          window.removeEventListener("pointerdown", handler, true);
-          window.removeEventListener("touchstart", handler, true);
-          window.removeEventListener("click", handler, true);
-          document.removeEventListener("keydown", keyHandler, true);
-          unlockAudioOnce();
-        };
-        const keyHandler = (e) => {
-          if (e.code === "Space" || e.code === "Enter") handler();
-        };
-        window.addEventListener("pointerdown", handler, {
-          capture: true,
-          once: true,
-          passive: true,
-        });
-        window.addEventListener("touchstart", handler, {
-          capture: true,
-          once: true,
-          passive: true,
-        });
-        window.addEventListener("click", handler, {
-          capture: true,
-          once: true,
-          passive: true,
-        });
-        document.addEventListener("keydown", keyHandler, {
-          capture: true,
-          once: true,
-        });
-      })();
 
       let splashHideTimer;
       const showSplash = () => {
@@ -1602,10 +1587,13 @@
         if (arStarted) return;
         arStarted = true;
         setVoicePanel(
-          'Permite la camara y el microfono. Luego apunta a la portada y di <strong>"Eusebio"</strong>.',
+          'Permite la camara. Luego apunta a la portada y di <strong>"Eusebio"</strong>.',
           "ready"
         );
         await mindarThree.start();
+        if (voiceEnabled) {
+          setVoicePanel('Microfono activo. Di <strong>"Eusebio"</strong>.', "listening");
+        }
         hideSplash();
         startAdaptiveScaler();
 
@@ -1627,6 +1615,12 @@
       const beginExperience = async () => {
         introModal?.setAttribute("hidden", "");
         unlockAudioOnce();
+        const micAllowed = await requestMicrophonePermission();
+        if (!micAllowed) {
+          introModal?.removeAttribute("hidden");
+          return;
+        }
+        startVoiceRecognition();
         await start();
       };
 
