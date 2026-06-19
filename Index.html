@@ -75,6 +75,118 @@
         background: rgba(127, 69, 20, 0.72);
       }
 
+      #intro-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: grid;
+        place-items: center;
+        padding: 18px;
+        background:
+          radial-gradient(circle at 62% 18%, rgba(240, 127, 145, 0.24), transparent 22%),
+          linear-gradient(180deg, rgba(49, 145, 190, 0.96), rgba(29, 101, 145, 0.96));
+      }
+      #intro-modal[hidden] {
+        display: none;
+      }
+      .intro-card {
+        width: min(94vw, 560px);
+        max-height: min(86dvh, 760px);
+        overflow: auto;
+        padding: 22px;
+        border: 3px solid rgba(255, 255, 255, 0.72);
+        border-radius: 16px;
+        color: #fff;
+        background: rgba(38, 123, 171, 0.92);
+        box-shadow: 0 16px 50px rgba(0, 0, 0, 0.34);
+        font-family: system-ui, sans-serif;
+      }
+      .intro-title {
+        margin: 0;
+        color: #fff;
+        font-size: clamp(34px, 10vw, 58px);
+        line-height: 0.95;
+        letter-spacing: 0;
+        text-align: center;
+        text-shadow:
+          0 3px 0 rgba(40, 55, 72, 0.78),
+          0 8px 18px rgba(0, 0, 0, 0.2);
+      }
+      .intro-subtitle {
+        margin: 8px 0 18px;
+        color: #ffe7b7;
+        font-size: clamp(22px, 7vw, 34px);
+        font-weight: 800;
+        line-height: 1.05;
+        text-align: center;
+        text-shadow: 0 3px 0 rgba(40, 55, 72, 0.62);
+      }
+      .intro-lion {
+        margin: 8px auto 12px;
+        width: 100px;
+        height: 100px;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        background: radial-gradient(circle, #ffe1a8, #f39a72 72%);
+        font-size: 62px;
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
+      }
+      .intro-copy {
+        margin: 0 0 14px;
+        font-size: 15px;
+        line-height: 1.42;
+      }
+      .intro-steps {
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 10px;
+        list-style: none;
+      }
+      .intro-steps li {
+        display: grid;
+        grid-template-columns: 34px 1fr;
+        gap: 10px;
+        align-items: start;
+        padding: 10px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.14);
+      }
+      .step-number {
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        color: #26445d;
+        background: #ffe0a7;
+        font-weight: 900;
+      }
+      .intro-keyword {
+        color: #fff;
+        font-weight: 900;
+        text-decoration: underline;
+        text-decoration-color: #f58b98;
+        text-decoration-thickness: 3px;
+      }
+      #intro-start {
+        width: 100%;
+        margin-top: 18px;
+        padding: 14px 16px;
+        border: 0;
+        border-radius: 12px;
+        color: #253f56;
+        background: linear-gradient(180deg, #ffe7b7, #f5a071);
+        box-shadow: 0 5px 0 #c96f54, 0 12px 24px rgba(0, 0, 0, 0.28);
+        font: 900 17px/1 system-ui, sans-serif;
+        cursor: pointer;
+      }
+      #intro-start:active {
+        transform: translateY(2px);
+        box-shadow: 0 3px 0 #c96f54, 0 8px 18px rgba(0, 0, 0, 0.24);
+      }
+
       /* Splash minimal para activar audio */
       #splash {
         position: fixed;
@@ -158,9 +270,40 @@
       <div id="touch-hint" aria-label="Toca para activar audio">Audio</div>
     </div>
 
+    <div id="intro-modal" role="dialog" aria-modal="true" aria-labelledby="intro-title">
+      <section class="intro-card">
+        <h1 id="intro-title" class="intro-title">Eusebio</h1>
+        <div class="intro-subtitle">Coleccionista de dudas</div>
+        <div class="intro-lion" aria-hidden="true">🦁</div>
+        <p class="intro-copy">
+          Este es un prototipo de realidad aumentada para leer el libro en voz
+          alta e interactuar con Eusebio usando tu voz.
+        </p>
+        <ol class="intro-steps">
+          <li>
+            <span class="step-number">1</span>
+            <span>Presiona el boton de abajo para iniciar la experiencia.</span>
+          </li>
+          <li>
+            <span class="step-number">2</span>
+            <span>Cuando el navegador lo pida, permite el acceso a la camara, al audio y al microfono.</span>
+          </li>
+          <li>
+            <span class="step-number">3</span>
+            <span>Apunta la camara a la portada que dice <strong>Eusebio, Coleccionista de dudas</strong>.</span>
+          </li>
+          <li>
+            <span class="step-number">4</span>
+            <span>Cuando veas a Eusebio, lee en voz alta y di la palabra clave: <span class="intro-keyword">Eusebio</span>.</span>
+          </li>
+        </ol>
+        <button id="intro-start" type="button">Entendido, activar experiencia</button>
+      </section>
+    </div>
+
     <div id="voice-panel">
-      Toca la pantalla para activar audio y microfono. Luego di
-      <strong>"Eusebio"</strong>.
+      Presiona el boton inicial, permite camara y microfono, y luego di
+      <strong>"Eusebio"</strong> cuando veas la portada.
     </div>
 
     <div id="spinner" hidden aria-hidden="true">
@@ -1405,10 +1548,18 @@
 
       // ====== Inicio de camara/AR ======
       const fpsBox = document.getElementById("fps");
+      const introModal = document.getElementById("intro-modal");
+      const introStartButton = document.getElementById("intro-start");
+      let arStarted = false;
       const start = async () => {
-        showSplash();
+        if (arStarted) return;
+        arStarted = true;
+        setVoicePanel(
+          'Permite la camara y el microfono. Luego apunta a la portada y di <strong>"Eusebio"</strong>.',
+          "ready"
+        );
         await mindarThree.start();
-        showSplash();
+        hideSplash();
         startAdaptiveScaler();
 
         let last = performance.now();
@@ -1425,7 +1576,23 @@
           }
         });
       };
-      start();
+
+      const beginExperience = async () => {
+        introModal?.setAttribute("hidden", "");
+        unlockAudioOnce();
+        await start();
+      };
+
+      introStartButton?.addEventListener("click", () => {
+        beginExperience().catch(() => {
+          arStarted = false;
+          introModal?.removeAttribute("hidden");
+          setVoicePanel(
+            "No pude iniciar la experiencia. Revisa los permisos de camara y microfono.",
+            ""
+          );
+        });
+      });
 
       /* ====== Precalentar algunos audios ====== */
       [0, 1, 2].forEach((i) => {
